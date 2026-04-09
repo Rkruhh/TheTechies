@@ -1,5 +1,10 @@
 # SAS Healthcare Data Pipeline — PBC Analysis
 
+**Team:** Team Techies
+**Members:** Rucha Keni, Satvik Nayak, Likitha Sri Kode, Tye Jamian
+
+---
+
 A structured SAS pipeline for clinical data analysis using the **Primary Biliary Cirrhosis (PBC)** dataset from the Mayo Clinic (418 patients, 312 randomized to trial). The pipeline follows a modular use-case design, progressing from raw data ingestion through statistical comparison.
 
 ---
