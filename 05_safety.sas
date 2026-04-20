@@ -1,14 +1,17 @@
 /* 
-   Purpose  : Use Case 5 - Safety and Adverse Event Analysis
+   Use Case 5 - Safety and Adverse Event Analysis
 */
 
-%let proj = /home/u64462473/SPL_Project;
-libname pbc "&proj.";
+proc format;
+   value trt_fmt
+      1 = "D-Penicillamine"
+      2 = "Placebo";
+   value yn_fmt
+      0 = "No"
+      1 = "Yes";
+run;
 
-ods graphics on;
-
-
-/* 
+/*
    SECTION 0 - DATA PREPARATION
 */
 
@@ -17,11 +20,11 @@ data safety;
 
    high_bili    = (bili    >= 3.0);   
    high_copper  = (copper  >= 140);   
-   high_protime = (protime >= 12);    
-   low_platelet = (platelet < 150);   
+   high_protime = (protime >= 12);  
+   low_platelet = (platelet < 150);  
 
    edema_any = (edema > 0);
-   
+
    if trt = 1 then trt_label = "1 - D-Penicillamine";
    else if trt = 2 then trt_label = "2 - Placebo";
 
@@ -45,7 +48,6 @@ run;
    SECTION 1 - ADVERSE CLINICAL INDICATOR RATES BY TREATMENT
 */
 
-/* Ascites by Treatment */
 title1 "Section 1 - Adverse Clinical Indicators by Treatment Group";
 title2 "Ascites (Fluid in Abdomen) - Drug vs Placebo";
 
@@ -57,8 +59,6 @@ run;
 
 title;
 
-
-/* Hepatomegaly by Treatment  */
 title1 "Section 1 - Adverse Clinical Indicators by Treatment Group";
 title2 "Hepatomegaly (Enlarged Liver) - Drug vs Placebo";
 
@@ -70,8 +70,6 @@ run;
 
 title;
 
-
-/* Spider Angiomata by Treatment */
 title1 "Section 1 - Adverse Clinical Indicators by Treatment Group";
 title2 "Spider Angiomata - Drug vs Placebo";
 
@@ -83,8 +81,6 @@ run;
 
 title;
 
-
-/* Any Edema by Treatment */
 title1 "Section 1 - Adverse Clinical Indicators by Treatment Group";
 title2 "Any Edema (Edema > 0) - Drug vs Placebo";
 
@@ -97,22 +93,10 @@ run;
 title;
 
 
-/* Apply a format for treatment group labels in all output */
-proc format;
-   value trt_fmt
-      1 = "D-Penicillamine"
-      2 = "Placebo";
-   value yn_fmt
-      0 = "No"
-      1 = "Yes";
-run;
-
-
 /* 
    SECTION 2 - DEATH RATE BY TREATMENT GROUP
 */
 
-/* Death Rate by Treatment  */
 title1 "Section 2 - Mortality by Treatment Group";
 title2 "All-Cause Death Rate - D-Penicillamine vs Placebo";
 
@@ -126,8 +110,6 @@ run;
 
 title;
 
-
-/* Death Rate by Treatment and Stage (Three-Way Table) */
 title1 "Section 2 - Mortality by Treatment Group and Stage";
 title2 "Death Rate within Each Histologic Stage - Drug vs Placebo";
 
@@ -144,7 +126,6 @@ title;
    SECTION 3 - ABNORMAL LAB VALUE RATES BY TREATMENT GROUP
 */
 
-/* Macro to run a single chi-square comparison cleanly */
 %macro lab_freq(var=, varlabel=, sec=);
    title1 "Section 3 - Abnormal Lab Values by Treatment Group";
    title2 "&sec. - Drug vs Placebo";
@@ -169,42 +150,32 @@ title;
 
 /* 
    SECTION 4 - CONSOLIDATED SAFETY SUMMARY TABLE
+   Approach:
+   Step 1 - Use PROC FREQ with ODS OUTPUT to capture counts,
+            percentages, and p-values for every indicator.
+   Step 2 - Stack results into one summary dataset.
+   Step 3 - Render with PROC REPORT.
 */
 
-/* Capture chi-square p-values for every indicator */
-
-/* Macro: runs PROC FREQ and saves the chi-square p-value */
 %macro get_pval(var=, indicator=);
-   ods output ChiSq     = chisq_&var.
+   ods exclude all;
+   ods output ChiSq        = chisq_&var.
               CrossTabFreqs = freq_&var.;
 
-   proc freq data=safety noprint;
+   proc freq data=safety;
       tables trt * &var. / chisq;
       format trt trt_fmt. &var. yn_fmt.;
    run;
 
+   ods select all;
+
+   /* Extract chi-square p-value row */
    data pval_&var.;
       set chisq_&var.;
       where statistic = "Chi-Square";
       indicator = "&indicator.";
       pval = prob;
       keep indicator pval;
-   run;
-
-   data cnts_&var.;
-      set freq_&var.;
-      where &var. = 1 and trt in (1, 2) and type = "Row";
-
-      indicator = "&indicator.";
-      if trt = 1 then do;
-         n_drug  = frequency;
-         pct_drug = percent;
-      end;
-      if trt = 2 then do;
-         n_plac  = frequency;
-         pct_plac = percent;
-      end;
-      keep indicator trt n_drug pct_drug n_plac pct_plac;
    run;
 
 %mend get_pval;
@@ -221,7 +192,7 @@ title;
 %get_pval(var=death,        indicator=Death);
 
 
-/* Stack p-values into one dataset */
+/* --- 4B: Stack p-values into one dataset --- */
 data all_pvals;
    set pval_ascites
        pval_hepato
@@ -234,6 +205,7 @@ data all_pvals;
        pval_low_platelet
        pval_death;
 run;
+
 
 proc sql noprint;
    select count(*) into :n_drug trimmed from safety where trt = 1;
@@ -275,10 +247,12 @@ quit;
 %get_n(var=death,        trt_val=2, out=dth2);
 
 
+/* Build the summary dataset row by row */
 data safety_summary;
    length indicator $35 drug_np $15 plac_np $15;
    format pval pvalue6.4;
 
+   /* Total n header row */
    sortord  = 0;
    indicator = "Total N";
    drug_np   = cats(&n_drug.);
@@ -286,6 +260,7 @@ data safety_summary;
    pval      = .;
    output;
 
+   /* Clinical indicators */
    sortord=1; indicator="Ascites";
    drug_np=cats("&asc1_n. ","(","&asc1_pct.","%",")");
    plac_np=cats("&asc2_n. ","(","&asc2_pct.","%",")");
@@ -310,6 +285,7 @@ data safety_summary;
    set all_pvals; where indicator="Any Edema";
    output;
 
+   /* Lab abnormalities */
    sortord=5; indicator="High Bilirubin (>= 3.0)";
    drug_np=cats("&bil1_n. ","(","&bil1_pct.","%",")");
    plac_np=cats("&bil2_n. ","(","&bil2_pct.","%",")");
@@ -340,6 +316,7 @@ data safety_summary;
    set all_pvals; where indicator="Low Platelet Count";
    output;
 
+   /* Death */
    sortord=10; indicator="Death (All-Cause)";
    drug_np=cats("&dth1_n. ","(","&dth1_pct.","%",")");
    plac_np=cats("&dth2_n. ","(","&dth2_pct.","%",")");
@@ -358,12 +335,14 @@ run;
    The safety_summary dataset is kept as a reference / export target.
 */
 
+
 title1 "Section 4 - Consolidated Safety Summary Table";
 title2 "Adverse Event and Lab Abnormality Rates by Treatment Group";
 title3 "n (Row %) shown for each group | Chi-Square p-value";
 footnote1 "Reference: D-Penicillamine (trt=1), Placebo (trt=2)";
 footnote2 "Row percentages computed within each treatment group";
 footnote3 "* Fisher exact test recommended where expected cell count < 5 (see Section 6)";
+
 
 data safety_long;
    set safety;
@@ -400,6 +379,7 @@ run;
 
 proc sort data=safety_long; by sortord indicator trt; run;
 
+/* Summary counts per indicator per treatment */
 proc sql;
    create table safety_report as
    select
@@ -414,6 +394,10 @@ proc sql;
    order by sortord, trt;
 quit;
 
+/* Sort by indicator (alphabetical) as required by PROC TRANSPOSE BY statement */
+proc sort data=safety_report; by indicator sortord trt; run;
+
+/* Pivot to wide format: one row per indicator */
 proc transpose data=safety_report out=safety_wide_n    prefix=n_trt;
    by indicator sortord;
    id trt;
@@ -435,6 +419,7 @@ data safety_wide;
    plac_np = cats(n2, " (", put(pct2, 5.1), "%)");
 run;
 
+/* Merge in p-values */
 proc sort data=safety_wide;   by indicator; run;
 proc sort data=all_pvals;     by indicator; run;
 
@@ -469,11 +454,10 @@ title;
 footnote;
 
 
-/* 
+/*
    SECTION 5 - VISUALIZATIONS
 */
 
-/* Prepare plotting dataset - adverse event rates */
 proc sql;
    create table ae_plot as
    select
@@ -485,6 +469,7 @@ proc sql;
    where sortord <= 9   /* exclude death - shown separately */
    group by indicator, sortord, trt;
 quit;
+
 
 data ae_plot;
    set ae_plot;
@@ -502,7 +487,6 @@ proc sgplot data=ae_plot;
    vbar indicator / response=rate group=trt_lbl
                     groupdisplay=cluster
                     datalabel datalabelattrs=(size=7)
-                    datalabelformat=5.1
                     fillattrs=(transparency=0.15);
    xaxis label="Safety Indicator"
          discreteorder=data
@@ -542,8 +526,7 @@ footnote1 "Height of each segment = death rate (%) within that stage and treatme
 proc sgplot data=death_stage;
    vbar trt_lbl / response=death_rate group=stage_lbl
                   groupdisplay=stack
-                  datalabel datalabelattrs=(size=7 color=white)
-                  datalabelformat=5.1;
+                  datalabel datalabelattrs=(size=7 color=white);
    xaxis label="Treatment Group";
    yaxis label="Death Rate (%)" grid;
    keylegend / title="Histologic Stage" location=inside position=topright;
@@ -553,14 +536,15 @@ run;
 title;
 footnote;
 
+
+/* --- 5D: Heat-map style matrix - event rate by indicator and treatment --- */
 title1 "Section 5 - Safety Indicator Heat Map";
 title2 "Event Rate (%) by Indicator and Treatment Group";
 
 proc sgplot data=ae_plot;
    hbar indicator / response=rate group=trt_lbl
                     groupdisplay=cluster
-                    datalabel datalabelformat=5.1
-                    datalabelattrs=(size=7)
+                    datalabel datalabelattrs=(size=7)
                     fillattrs=(transparency=0.1);
    yaxis label="Safety Indicator" discreteorder=data;
    xaxis label="Event Rate (%)" grid;
@@ -571,7 +555,7 @@ run;
 title;
 
 
-/*
+/* 
    SECTION 6 - FISHER EXACT TEST FOR RARE EVENTS
 */
 
